@@ -1,0 +1,17 @@
+{
+  "name": "solstice-kiosk-system",
+  "version": "1.0.0",
+  "description": "Asynchronous event check-in system for Solstice Events Co.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  }
+}
