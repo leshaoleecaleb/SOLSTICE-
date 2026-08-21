@@ -2,30 +2,21 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
+// In-memory mock database & state tracking
+const attendeesDb = new Map();
+
 // 1. Kiosk Check-In Endpoint
 app.post('/api/v1/check-in', async (req, res) => {
   const { attendeeId } = req.body;
+  const currentStatus = attendeesDb.get(attendeeId) || 'NOT_CHECKED_IN';
   
-  // Atomic DB Lock to prevent concurrent duplicate scans
-  const query = `
-    UPDATE attendees 
-    SET status = 'CHECKING_IN_PENDING' 
-    WHERE attendee_id = $1 AND status IN ('NOT_CHECKED_IN', 'FAILED')
-    RETURNING *;
-  `;
-  
-  const result = await db.query(query, [attendeeId]);
-  
-  if (result.rowCount === 0) {
+  // Atomic Guardrail: Block duplicate scans or already checked-in attendees
+  if (currentStatus === 'CHECKING_IN_PENDING' || currentStatus === 'CHECKED_IN') {
     return res.status(409).json({ error: 'Duplicate scan or already checked in.' });
   }
 
-  // Publish print job to Vendor Message Queue
-  await messageQueue.publish({
-    print_job_id: `job_${Date.now()}`,
-    attendee_id: attendeeId,
-    callback_url: 'https://api.solstice.com/v1/webhooks/badge-printed'
-  });
+  // Set pending state
+  attendeesDb.set(attendeeId, 'CHECKING_IN_PENDING');
 
   return res.status(202).json({ status: 'CHECKING_IN_PENDING' });
 });
@@ -35,12 +26,18 @@ app.post('/v1/webhooks/badge-printed', async (req, res) => {
   const { attendee_id, status } = req.body;
 
   if (status === 'SUCCESS') {
-    await db.query(`UPDATE attendees SET status = 'CHECKED_IN' WHERE attendee_id = $1`, [attendee_id]);
+    attendeesDb.set(attendee_id, 'CHECKED_IN');
   } else {
-    await db.query(`UPDATE attendees SET status = 'FAILED' WHERE attendee_id = $1`, [attendee_id]);
+    attendeesDb.set(attendee_id, 'FAILED');
   }
 
   return res.status(200).json({ received: true });
 });
 
-app.listen(3000, () => console.log('Kiosk API running on port 3000'));
+// Export app for Supertest / Jest integration
+module.exports = app;
+
+// Only start listening if run directly (e.g. npm start)
+if (require.main === module) {
+  app.listen(3000, () => console.log('Kiosk API running on port 3000'));
+}
